@@ -21,6 +21,22 @@ import { normalizeArgs } from './args.js';
 import { GROUP_SCOPE_RESOURCES, type CommandDef } from './registry.js';
 
 const GROUP_WIRING_COMMANDS = new Set(['wirings-get', 'wirings-update']);
+/**
+ * Approval-gated commands a `global`-scope agent (the owner's agent) may run
+ * without an approval card: chat registration, wiring, new empty agent groups,
+ * and container restart. Everything else approval-gated (config, packages, MCP
+ * servers, roles, members, destinations, deletes, ...) still holds.
+ */
+const GLOBAL_SCOPE_NO_APPROVAL = new Set([
+  'messaging-groups-create',
+  'messaging-groups-update',
+  'wirings-create',
+  'wirings-update',
+  'wirings-delete',
+  'groups-create',
+  'groups-restart',
+]);
+
 const GROUP_WIRING_UPDATE_ARGS = new Set(['id', 'agent_group_id', 'group', 'help', 'engage_mode', 'engage_pattern']);
 
 /** Dotted catalog action name for a command. */
@@ -112,6 +128,9 @@ async function commandDecide(cmd: CommandDef, input: GuardInput) {
   }
 
   if (cmd.access === 'approval') {
+    if (cliScope === 'global' && GLOBAL_SCOPE_NO_APPROVAL.has(cmd.name)) {
+      return ALLOW('global-scope agent: approval waived for chat/wiring/restart commands');
+    }
     return HOLD(`agent-initiated "${cmd.name}" requires admin approval`);
   }
 

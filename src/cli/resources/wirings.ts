@@ -118,6 +118,13 @@ registerResource({
       updatable: true,
     },
     {
+      name: 'max_per_hour',
+      type: 'number',
+      description:
+        'Hard cap on messages that engage the agent per rolling hour for this wiring. Messages over the cap are dropped before the agent sees them (logged as rate_limited). Unset = unlimited.',
+      updatable: true,
+    },
+    {
       name: 'priority',
       type: 'number',
       description: 'Fanout order when multiple agents are wired to the same messaging group — higher priority first.',
@@ -220,6 +227,7 @@ registerResource({
         if (args.engage_pattern !== undefined) values.engage_pattern = args.engage_pattern;
         if (args.threads !== undefined) values.threads = args.threads;
         if (args.priority !== undefined) values.priority = Number(args.priority);
+        if (args.max_per_hour !== undefined) values.max_per_hour = Number(args.max_per_hour);
 
         // Pass-2 parity: context-aware defaults + cross-column validation.
         const mg = await requireMessagingGroup(values.messaging_group_id);

@@ -358,6 +358,7 @@ export async function updateMessagingGroupAgent(
       | 'session_mode'
       | 'priority'
       | 'threads'
+      | 'max_per_hour'
     >
   >,
 ): Promise<void> {

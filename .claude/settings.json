@@ -1,5 +1,21 @@
 {
   "sandbox": {
     "enabled": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ncl wirings list*)",
+      "Bash(ncl wirings get *)",
+      "Bash(ncl messaging-groups list*)",
+      "Bash(ncl groups list*)",
+      "Bash(ncl groups get *)",
+      "Bash(ncl groups config get *)",
+      "Bash(ncl dropped-messages list*)",
+      "Bash(ncl sessions list*)",
+      "Bash(ncl tasks list*)",
+      "Bash(ncl approvals list*)",
+      "Bash(systemctl --user is-active *)",
+      "Bash(systemctl --user list-units *)"
+    ]
   }
 }

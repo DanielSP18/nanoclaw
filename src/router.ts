@@ -22,6 +22,7 @@ import { resolveThreadPolicy, resolveUnknownSenderPolicy } from './channels/chan
 import { gateCommand } from './command-gate.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { recordDroppedMessage } from './db/dropped-messages.js';
+import { consumeWiringQuota } from './db/wiring-rate-limit.js';
 import {
   createMessagingGroupIfAbsent,
   getMessagingGroupAgents,
@@ -396,6 +397,24 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     const scopeOk = engages && (!senderScopeGate || (await senderScopeGate(event, userId, mg, agent)).allowed);
 
     if (engages && accessOk && scopeOk) {
+      if (!(await consumeWiringQuota(agent.id, agent.max_per_hour))) {
+        log.warn('Wiring hourly cap reached; dropping engaged message', {
+          wiringId: agent.id,
+          agentGroupId: agent.agent_group_id,
+          maxPerHour: agent.max_per_hour,
+        });
+        await recordDroppedMessage({
+          channel_type: event.channelType,
+          platform_id: event.platformId,
+          user_id: userId,
+          sender_name: parsed.sender ?? null,
+          reason: 'rate_limited',
+          messaging_group_id: mg.id,
+          agent_group_id: agent.agent_group_id,
+        });
+        engagedCount++;
+        continue;
+      }
       await deliverToAgent(agent, agentGroup, mg, event, userId, threadsEnabled, effectiveThreadId, true);
       engagedCount++;
 

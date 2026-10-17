@@ -159,6 +159,11 @@ export interface MessagingGroupAgent {
    * updating.
    */
   threads?: number | null;
+  /**
+   * Hard cap on messages that engage the agent per rolling hour (migration
+   * 026). NULL = unlimited. Enforced in the router via consumeWiringQuota.
+   */
+  max_per_hour?: number | null;
   created_at: string;
 }
 
