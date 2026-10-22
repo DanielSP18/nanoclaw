@@ -352,8 +352,12 @@ registerResource({
         }
         const message = args.message as string | undefined;
 
-        // From an agent: scope to the calling session only
-        if (ctx.caller === 'agent') {
+        // From an agent targeting its own group: scope to the calling session
+        // only. An agent naming another group (global cli_scope — group scope
+        // rejects cross-group ids before dispatch) falls through to the
+        // group-wide restart below; killing the caller there would restart
+        // the wrong agent and, on retry, put the caller in a self-kill loop.
+        if (ctx.caller === 'agent' && id === ctx.agentGroupId) {
           if (message) {
             await writeSessionMessage(id, ctx.sessionId, {
               id: `restart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

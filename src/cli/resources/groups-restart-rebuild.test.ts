@@ -29,13 +29,14 @@ vi.mock('../../log.js', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), fatal: vi.fn() },
 }));
 
-import { buildAgentGroupImage } from '../../container-runner.js';
+import { buildAgentGroupImage, killContainer } from '../../container-runner.js';
 import { restartAgentGroupContainers } from '../../container-restart.js';
 import { DockerSessionDriver } from '../../drivers/docker-driver.js';
 import { resetSessionDriver } from '../../drivers/index.js';
 import { FIXTURE_POLICY } from '../../drivers/spec-fixture.js';
 import type { SessionDriver } from '../../drivers/types.js';
 import { dispatch } from '../dispatch.js';
+import { lookup } from '../registry.js';
 // Side-effect import: registers the `groups-*` commands (including restart).
 import './groups.js';
 
@@ -107,5 +108,27 @@ describe('groups restart --rebuild gates on the imageBuild capability', () => {
       expect((resp as OkResponse).data).toMatchObject({ restarted: 2, rebuilt: false });
       expect(buildAgentGroupImage).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe('groups restart from an agent', () => {
+  const agentCtx = { caller: 'agent', agentGroupId: 'ag-self', sessionId: 'sess-self' } as const;
+
+  it('without --id (or naming its own group) restarts only the calling session', async () => {
+    const handler = lookup('groups-restart')!.handler;
+    for (const args of [{}, { id: 'ag-self' }]) {
+      vi.clearAllMocks();
+      const data = await handler(args, agentCtx as never);
+      expect(data).toMatchObject({ restarted: 1 });
+      expect(killContainer).toHaveBeenCalledWith('sess-self', 'restarted via ncl', undefined);
+      expect(restartAgentGroupContainers).not.toHaveBeenCalled();
+    }
+  });
+
+  it('naming another group restarts that group and never kills the caller', async () => {
+    const data = await lookup('groups-restart')!.handler({ id: 'ag-other' }, agentCtx as never);
+    expect(data).toMatchObject({ restarted: 2 });
+    expect(restartAgentGroupContainers).toHaveBeenCalledWith('ag-other', 'restarted via ncl', undefined);
+    expect(killContainer).not.toHaveBeenCalled();
   });
 });
