@@ -340,6 +340,35 @@ export function appendMediaFailureNote(content: string, failures: string[]): str
   return content ? `${content}\n${note}` : note;
 }
 
+/**
+ * Parse WHATSAPP_MEDIA_ALLOWED_SENDERS (comma-separated phone numbers) into a
+ * set of bare digit strings. Unset/empty → null, meaning media from every
+ * sender is downloaded.
+ */
+export function parseMediaAllowedSenders(raw: string | undefined): Set<string> | null {
+  const numbers = (raw || '')
+    .split(',')
+    .map((n) => n.replace(/\D/g, ''))
+    .filter(Boolean);
+  return numbers.length > 0 ? new Set(numbers) : null;
+}
+
+/** Whether inbound media from this sender JID should be saved to disk. */
+export function isMediaAllowedSender(allowed: Set<string> | null, senderJid: string): boolean {
+  if (!allowed) return true;
+  return allowed.has(senderJid.split('@')[0].split(':')[0]);
+}
+
+/** Note that stands in for media we deliberately did not save. */
+export function appendMediaSkippedNote(content: string, normalized: object): string {
+  const types = (['image', 'video', 'audio', 'document'] as const).filter(
+    (t) => (normalized as Record<string, unknown>)[`${t}Message`],
+  );
+  if (types.length === 0) return content;
+  const note = types.map((t) => `[${t} received — not saved]`).join(' ');
+  return content ? `${content}\n${note}` : note;
+}
+
 /** Map file extension to Baileys media message type. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildMediaMessage(data: Buffer, filename: string, ext: string, caption?: string): any {
@@ -400,9 +429,10 @@ export function computeWhatsappDefaults(shared: boolean): ChannelDefaults {
 // Adapter-internal env: same .env keys as always (setup/channels/whatsapp.ts
 // still writes them), but read here instead of imported from core config —
 // shared-number handling is channel-local.
-const waEnv = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER']);
+const waEnv = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'WHATSAPP_MEDIA_ALLOWED_SENDERS']);
 const ASSISTANT_NAME = waEnv.ASSISTANT_NAME || 'Andy';
 const WHATSAPP_SHARED = resolveSharedMode(waEnv.ASSISTANT_HAS_OWN_NUMBER);
+const MEDIA_ALLOWED_SENDERS = parseMediaAllowedSenders(waEnv.WHATSAPP_MEDIA_ALLOWED_SENDERS);
 const WHATSAPP_DEFAULTS: ChannelDefaults = computeWhatsappDefaults(WHATSAPP_SHARED);
 
 registerChannelAdapter('whatsapp', {
@@ -855,22 +885,30 @@ registerChannelAdapter('whatsapp', {
             // (dedicated mode only — see rewriteBotLidMention)
             content = rewriteBotLidMention(content, WHATSAPP_SHARED, botLidUser, ASSISTANT_NAME);
 
-            // Download media attachments (images, video, audio, documents)
-            const { attachments, failures } = await downloadInboundMedia(msg, normalized);
-
-            // Surface failed downloads as text so the agent knows media was
-            // sent even when it couldn't be fetched — instead of silently
-            // dropping the attachment (or the whole message, if uncaptioned).
-            content = appendMediaFailureNote(content, failures);
-
-            // Skip empty protocol messages (no text and no attachments)
-            if (!content && attachments.length === 0) continue;
-
             // Resolve sender: in groups, participant may be LID — use participantAlt
             const rawSender = msg.key.participant || msg.key.remoteJid || '';
             const sender = rawSender.endsWith('@lid')
               ? await translateJid(rawSender, msg.key.participantAlt)
               : rawSender;
+
+            // Download media attachments (images, video, audio, documents) —
+            // only from allowlisted senders (WHATSAPP_MEDIA_ALLOWED_SENDERS).
+            // Everyone else's media is replaced with a text note, never saved.
+            let attachments: Array<{ type: string; name: string; localPath: string }> = [];
+            if (isMediaAllowedSender(MEDIA_ALLOWED_SENDERS, sender)) {
+              const downloaded = await downloadInboundMedia(msg, normalized);
+              attachments = downloaded.attachments;
+              // Surface failed downloads as text so the agent knows media was
+              // sent even when it couldn't be fetched — instead of silently
+              // dropping the attachment (or the whole message, if uncaptioned).
+              content = appendMediaFailureNote(content, downloaded.failures);
+            } else {
+              content = appendMediaSkippedNote(content, normalized);
+            }
+
+            // Skip empty protocol messages (no text and no attachments)
+            if (!content && attachments.length === 0) continue;
+
             const senderName = msg.pushName || sender.split('@')[0];
             const fromMe = msg.key.fromMe || false;
             // Filter bot's own messages to prevent echo loops.
